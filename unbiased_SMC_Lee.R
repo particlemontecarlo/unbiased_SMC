@@ -80,7 +80,7 @@ abline(v=sqrt(2*pi*sds[n]^2)/sqrt(2*pi*sds[1]^2))
 
 
 ## ok now to have 2D
-n <- 5
+n <- 100
 N <- 1e3
 means = seq(1,0,length=n)
 sds <- seq(from=2,to=1,length.out=n)
@@ -88,7 +88,7 @@ mu <- function(N) matrix(rnorm(D*N, mean=means[1], sd=sds[1]),nrow=2)
 log_gamma <- function(p, x) {
   return(dnorm(x[1,], mean=means[p], sd=sds[p],log=T) + dnorm(x[2,], mean=means[p], sd=sds[p],log=T))
 }
-g <- function(p, x) {
+log_G <- function(p, x) {
   if (p < n) {
     res <- log_gamma(p+1,x)-log_gamma(p,x) 
   }else {
@@ -101,7 +101,8 @@ M <- function(p, x) {
   y <- x + matrix(rnorm(N*D),nrow=D)
   log_ratios <- log_gamma(p, y) - log_gamma(p, x)
   accepts <- log(runif(N)) < log_ratios
-  y*accepts + x*(1-accepts)
+  res <- y[,accepts] + x[,1-accepts]
+  return(res)
 }
 smc <- function(mu, M, G, D, n, N) {
   as <- matrix(0,n-1,N)
@@ -128,7 +129,6 @@ smc <- function(mu, M, G, D, n, N) {
 
 R <- 100
 z_ests <- rep(NA,R)
-n <- 5
 D <- 2
 for(r in 1:R){
   out <- smc(mu, M, G, D,n, N)
