@@ -1,136 +1,142 @@
 ### SMC sampler code in R
 rm(list=ls())
 
-### script to obtain unbiased estimates with respect to a target annealed using sequential monte carlo
-# we have that the target pi(x) = exp(U(x)) where U(x)  is some target energy
-# we then specify 
-# i) the initial sampling distribution
-# ii) the sequence of targets, in this case we will choose
-#
-#   pi_t(x) = pi(x)^alpha_t * pi0(x)^(1-alpha_t)
-#
-# so that we vary alpha between 0 and 1
-# in particular we will set alpha_t = (t/(T-1))
-# we will set pi0 = N(0,sigma02 * I)
-# we will use D to denote the dimension of the state-space
-# each step leaves pi_t invariant
-
-D <- 1
-mu0 <- 1
-sigma02 <- 5
-sigma2_prop <- 0.5
-T_final <- 100
-nparticles <- 1e3
 
 
-# target
-log_gamma <- function(xparticles){
-  return(rowSums(-0.5*(xparticles^2)))
-}
-
-# initial distribution
-r_pi_0 <- function(nparticles){
-  return(matrix(rnorm(D*nparticles,mean=mu0,s=sqrt(sigma02)),ncol=D))
-}
-log_pi_0 <- function(xparticles){
-  return(rowSums(dnorm(xparticles,mean=mu0,s=sqrt(sigma02),log=T)))
-  #return(colSums(-0.5*(log(2*pi*sigma02) + (xparticles^2)/sigma02) ))
-}
-
-# sequence of targets
-log_pi_t <- function(t,xparticles){
-  alpha_t <- (t/(T_final-1))
-  return(alpha_t*log_gamma(xparticles) + (1-alpha_t)*log_pi_0(xparticles))
-}
-
-
-# specify incremental weights
-log_w_t <- function(t,xparticles_m1){
-  return(log_pi_t(t,xparticles_m1)-log_pi_t(t-1,xparticles_m1))
-}
-
-
-#specify transition kernel
-r_transition <- function(t,xparticles_m1){
-  xparticles_prop <- xparticles_m1 + matrix(rnorm(D*nparticles,0,s=sqrt(sigma2_prop)),ncol=D)
-  logd_prop <- log_pi_t(t,xparticles_prop)
-  logd_init <- log_pi_t(t,xparticles_m1)
-  log_acc_ratio <- pmin(0,logd_prop-logd_init)
-
-  nparticles <- dim(xparticles_m1)[1]
-  log_u_rands <- log(runif(nparticles))
-  accept_mask <- log_acc_ratio>log_u_rands
+smc <- function(mu, M, G, n, N) {
+  zetas <- matrix(0,n,N)
+  as <- matrix(0,n-1,N)
+  gs <- matrix(0,n,N)
+  log.Zs <- rep(0,n)
   
-  xparticles <- xparticles_m1
-  xparticles[accept_mask,] <- xparticles_prop[accept_mask,]
-  return(xparticles)
-}
-
-# run particle filter
-smc_sampler <- function(){
-  # initialise arrays
-  logZ_arr <- rep(NA,T_final)
-
-  # sample initial particles
-  xparticles <- r_pi_0(nparticles)
+  zetas[1,] <- mu(N)
+  gs[1,] <- G(1, zetas[1,])
+  log.Zs[1] <- log(mean(gs[1,]))
   
-  logW_normalised <- -rep(log(nparticles),nparticles)
-  logw1 <- log_pi_0(xparticles) + logW_normalised 
-  
-  max_lw <- max(logw1)
-  logZ_hat <- log(sum(exp(logw1-max_lw))) + max_lw
-  logZ_arr[1] <- logZ_hat
-  logW_normalised <- logw1 - logZ_hat 
-
-  
-  for(t in 2:T_final){
-
-    # resample
-    anc <- sample.int(nparticles, size = nparticles, replace = T, prob = exp(logW_normalised) ) 
-    xparticles <- as.matrix(xparticles[anc,])
-    xparticles_m1 <- xparticles
-    
-    logW_normalised <- -rep(log(nparticles),nparticles)
-    
-    # propagate particles
-    xparticles <- r_transition(t-1,xparticles_m1)
-    
-    # reweight
-    logw <- log_w_t(t,xparticles_m1)+logW_normalised
-    
-    # log-sum-exp to renormalise
-    max_lw <- max(logw)
-    logZ_hat <- log(sum(exp(logw-max_lw))) + max_lw
-    logZ_arr[t] <- logZ_hat
-    logW_normalised <- logw - logZ_hat
+  for (p in 2:n) {
+    # simulate ancestor indices, then particles
+    as[p-1,] <- sample(N,N,replace=TRUE,prob=gs[p-1,]/sum(gs[p-1,]))
+    zetas[p,] <- M(p, zetas[p-1,as[p-1,]])
+    gs[p,] <- G(p, zetas[p,])
+    log.Zs[p] <- log.Zs[p-1] + log(mean(gs[p,]))
   }
-  logZ <- sum(logZ_arr)
-  return_res <- list(logZ=logZ,xparticles=xparticles)
-  return(return_res)
+  return(list(zetas=zetas,gs=gs,as=as,log.Zs=log.Zs))
 }
 
 
-# plot normalising constant estimate
-R <- 1e3
-pf_res <- list()
-for(i in 1:R){
-  print(i)
-  pf_res[[i]] <- smc_sampler()
+## example
+n <- 10
+N <- 1e3
+means = seq(4,0,length=n)
+sds <- n:1
+
+mu <- function(N) rnorm(N, mean=means[1], sd=sds[1])
+gamma <- function(p, x) {
+  dnorm(x, mean=means[p], sd=sds[p])
 }
-logZ_collect <- sapply(pf_res,function(x) x$logZ)
-xparticle_collect <- sapply(pf_res,function(x) x$xparticles[1,])
+G <- function(p, x) {
+  if (p < n) {
+    res <- gamma(p+1,x)/gamma(p,x) 
+  }else {
+    res <- rep(1, length(x))
+  }
+  return(res)
+}
+M <- function(p, x) {
+  N <- length(x)
+  y <- x + rnorm(N)
+  ratios <- gamma(p, y)/gamma(p, x)
+  accepts <- runif(N) < ratios
+  y*accepts + x*(1-accepts)
+}
+out <- smc(mu, M, G, n, N)
+apply(out$zetas, 1, mean)
+apply(out$zetas, 1, sd)
+out$log.Zs
 
 
-# perform tests
-# ok for unit variance target, the normalising constant should approximate 2*pi
-sqrt(2*pi)
-mean(exp(logZ_collect))
-var(exp(logZ_collect)/R)^0.5
+
+## test normaising constant estimate
+n <- 5
+N <- 1e3
+means = seq(4,0,length=n)
+sds <- n:1
+gamma <- function(p, x) {
+  exp(-0.5*  ((x-means[p])/sds[p])^2  )
+}
+
+R <- 100
+z_ests <- rep(NA,R)
+for(r in 1:R){
+  out <- smc(mu, M, G, n, N)
+  apply(out$zetas, 1, mean)
+  apply(out$zetas, 1, sd)
+  z_ests[r] <- exp(out$log.Zs)[n]
+}
+
+hist(z_ests)
+abline(v=sqrt(2*pi*sds[n]^2)/sqrt(2*pi*sds[1]^2))
 
 
-# run unbiased SMC
-# will need to define a coupled and single PIMH kernel
 
+## ok now to have 2D
+n <- 5
+N <- 1e3
+means = seq(1,0,length=n)
+sds <- seq(from=2,to=1,length.out=n)
+mu <- function(N) matrix(rnorm(D*N, mean=means[1], sd=sds[1]),nrow=2)
+log_gamma <- function(p, x) {
+  return(dnorm(x[1,], mean=means[p], sd=sds[p],log=T) + dnorm(x[2,], mean=means[p], sd=sds[p],log=T))
+}
+g <- function(p, x) {
+  if (p < n) {
+    res <- log_gamma(p+1,x)-log_gamma(p,x) 
+  }else {
+    res <- rep(0, length(x))
+  }
+  return(res)
+}
+M <- function(p, x) {
+  N <- dim(x)[2]
+  y <- x + matrix(rnorm(N*D),nrow=D)
+  log_ratios <- log_gamma(p, y) - log_gamma(p, x)
+  accepts <- log(runif(N)) < log_ratios
+  y*accepts + x*(1-accepts)
+}
+smc <- function(mu, M, G, D, n, N) {
+  as <- matrix(0,n-1,N)
+  gs <- matrix(0,n,N)
+  log.Zs <- rep(0,n)
+  
+  zetas <- mu(N)
+  log_gs_p <- log_G(1, zetas)
+  log.Z.increment <- log(mean(exp(log_gs_p-max(log_gs_p)))) + max(log_gs_p)
+  log.Zs[1] <- log.Z.increment
+  
+  for (p in 2:n) {
+    # simulate ancestor indices, then particles
+    zetas_pm1 <- zetas
+    log_gs_pm1 <- exp(log_gs_p-max(log_gs_p))
+    as[p-1,] <- sample(N,N,replace=TRUE,prob=log_gs_pm1/sum(log_gs_pm1))
+    zetas <- M(p, zetas_pm1[,as[p-1,]])
+    log_gs_p <- log_G(p, zetas)
+    log.Z.increment <- log(mean(exp(log_gs_p-max(log_gs_p)))) + max(log_gs_p)
+    log.Zs[p] <- log.Zs[p-1] + log.Z.increment
+  }
+  return(list(zetas=zetas,as=as,log.Zs=log.Zs))
+}
 
+R <- 100
+z_ests <- rep(NA,R)
+n <- 5
+D <- 2
+for(r in 1:R){
+  out <- smc(mu, M, G, D,n, N)
+  apply(out$zetas, 1, mean)
+  apply(out$zetas, 1, sd)
+  z_ests[r] <- exp(out$log.Zs)[n]
+}
 
+hist(z_ests)
+abline(v=(2*pi*sds[n]^2)/(2*pi*sds[1]^2))
 
