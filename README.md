@@ -3,6 +3,7 @@ The following includes code to produce unbiased Monte Carlo estimates of expecta
 ## Tests
 We advise testing the resampling, particle method and unbiased MCMC method separately. 
 ## Main functions
+SMC
 
 
 
