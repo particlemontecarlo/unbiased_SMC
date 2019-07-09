@@ -1,55 +1,61 @@
 ### SMC sampler code in R
 rm(list=ls())
+set.seed(1)
 
 
 
-smc <- function(mu, M, G, n, N) {
+mu <- function(N) rnorm(N, mean=means[1], sd=sds[1])
+log_gamma <- function(p, x) {
+  (-0.5*(x-means[p]/sds[p])^2)
+}
+log_G <- function(p, x) {
+  if (p < n) {
+    res <- log_gamma(p+1,x) - log_gamma(p,x)
+  }else {
+    res <- rep(0, length(x))
+  }
+  return(res)
+}
+M <- function(p, x, sigma2_prop) {
+  N <- length(x)
+  y <- x + sqrt(sigma2_prop)*rnorm(N)
+  log_ratios <- log_gamma(p, y)-log_gamma(p, x)
+  accepts <- log(runif(N)) < log_ratios
+  y*accepts + x*(1-accepts)
+}
+smc <- function(mu, M, G, n, N, sigma2_prop) {
   zetas <- matrix(0,n,N)
   as <- matrix(0,n-1,N)
-  gs <- matrix(0,n,N)
+  log_gs <- matrix(0,n,N)
   log_Zs <- rep(0,n)
   
   zetas[1,] <- mu(N)
-  gs[1,] <- G(1, zetas[1,])
-  log_Zs[1] <- log(mean(gs[1,]))
+  log_gs[1,] <- log_G(1, zetas[1,])
+  log_Zs[1] <-  log(mean(exp(log_gs[1,]-max(log_gs[1,]))))+max(log_gs[1,])
   
   for (p in 2:n) {
     # simulate ancestor indices, then particles
-    as[p-1,] <- sample(N,N,replace=TRUE,prob=gs[p-1,]/sum(gs[p-1,]))
-    zetas[p,] <- M(p, zetas[p-1,as[p-1,]])
-    gs[p,] <- G(p, zetas[p,])
-    log_Zs[p] <- log_Zs[p-1] + log(mean(gs[p,]))
+    w_normalised <- exp(log_gs[p-1,]-max(log_gs[p-1,]))/sum(exp(log_gs[p-1,]-max(log_gs[p-1,])))
+    if(any(is.na(w_normalised))){
+      print('sfsd')
+    }
+    as[p-1,] <- sample(N,N,replace=TRUE,prob=w_normalised)
+    zetas[p,] <- M(p, zetas[p-1,as[p-1,]], sigma2_prop)
+    log_gs[p,] <- log_G(p, zetas[p,])
+    log_Zs[p] <- log_Zs[p-1] + log(mean(exp(log_gs[p,]-max(log_gs[p,]))))+max(log_gs[p,])
   }
-  return(list(zetas=zetas[n,],gs=gs,as=as,log_Z=log_Zs[n]))
+  return(list(zetas=zetas[n,],as=as,log_Z=log_Zs[n]))
 }
 
 
 ## example
-n <- 10
+n <- 100
 N <- 1e3
 means = seq(4,0,length=n)
-sds <- n:1
+sds <- 10:1
+sigma2_prop <- 2
 
-mu <- function(N) rnorm(N, mean=means[1], sd=sds[1])
-gamma <- function(p, x) {
-  exp(-0.5*(x-means[p]/sds[p])^2)
-}
-G <- function(p, x) {
-  if (p < n) {
-    res <- gamma(p+1,x)/gamma(p,x) 
-  }else {
-    res <- rep(1, length(x))
-  }
-  return(res)
-}
-M <- function(p, x) {
-  N <- length(x)
-  y <- x + rnorm(N)
-  ratios <- gamma(p, y)/gamma(p, x)
-  accepts <- runif(N) < ratios
-  y*accepts + x*(1-accepts)
-}
-out <- smc(mu, M, G, n, N)
+out <- smc(mu, M, G, n, N, sigma2_prop)
 # apply(out$zetas, 1, mean)
 # apply(out$zetas, 1, sd)
 out$log_Z
@@ -58,7 +64,7 @@ out$log_Z
 # biased pimh kernel
 pimh_kernel <- function(smc_out){
   # obtain proposal
-  smc_prop <- smc(mu, M, G, n, N)
+  smc_prop <- smc(mu, M, G, n, N, sigma2_prop)
   
   # conditionally accept proposal
   if(log(runif(1))<(smc_prop$log_Z - smc_out$log_Z)){
@@ -70,6 +76,7 @@ pimh_kernel <- function(smc_out){
 }
 smc_out<-smc(mu, M, G, n, N)
 
+# 
 R <- 1000
 logZ_arr <- rep(NA,R)
 zeta_arr <- matrix(NA,R,N)
@@ -79,94 +86,55 @@ for(i in 1:R){
   logZ_arr[i] <- smc_out$log_Z
   zeta_arr[i,] <- smc_out$zetas
 }
+plot(logZ_arr)
+
+# unbiased version
+coupled_pimh_kernel <- function(smc_out1,smc_out2){
+  # obtain proposal
+  smc_prop <- smc(mu, M, G, n, N, sigma2_prop)
+  u_rnd <- runif(1)
+  
+  # conditionally accept proposal for first chain
+  if(log(u_rnd)<(smc_prop$log_Z - smc_out1$log_Z)){
+    return_res1 <- smc_prop
+  }else{
+    return_res1 <- smc_out1
+  }
+  
+  # conditionally accept proposal for second chain
+  if(log(u_rnd)<(smc_prop$log_Z - smc_out2$log_Z)){
+    return_res2 <- smc_prop
+  }else{
+    return_res2 <- smc_out2
+  }
+  
+  return_res <- list(return_res1=return_res1,return_res2=return_res2)
+  return(return_res)
+}
+
+
+# run unbiased algorithm
+R <- 1000
+logZ_arr1 <- rep(NA,R)
+zeta_arr1 <- matrix(NA,R,N)
+logZ_arr2 <- rep(NA,R)
+zeta_arr2 <- matrix(NA,R,N)
+smc_out1 <- list(log_Z=-Inf)
+smc_out1 <- pimh_kernel(smc_out1)
+for(i in 1:R){
+  # iterate for both chains
+  smc_out_both <- coupled_pimh_kernel(smc_out1,smc_out2)
+  smc_out1 <- smc_out_both$return_res1
+  smc_out2 <- smc_out_both$return_res2
+  
+  # save results for two chains
+  logZ_arr1[i] <- smc_out1$log_Z
+  zeta_arr1[i,] <- smc_out1$zetas
+  logZ_arr2[i] <- smc_out2$log_Z
+  zeta_arr2[i,] <- smc_out3$zetas
+}
 
 
 
 
-
-
-
-# ## test normaising constant estimate
-# n <- 5
-# N <- 1e3
-# means = seq(4,0,length=n)
-# sds <- n:1
-# gamma <- function(p, x) {
-#   exp(-0.5*  ((x-means[p])/sds[p])^2  )
-# }
-# 
-# R <- 100
-# z_ests <- rep(NA,R)
-# for(r in 1:R){
-#   out <- smc(mu, M, G, n, N)
-#   apply(out$zetas, 1, mean)
-#   apply(out$zetas, 1, sd)
-#   z_ests[r] <- exp(out$log.Zs)[n]
-# }
-# 
-# hist(z_ests)
-# abline(v=sqrt(2*pi*sds[n]^2)/sqrt(2*pi*sds[1]^2))
-# 
-# 
-# 
-# ## ok now to have 2D
-# n <- 100
-# N <- 1e3
-# means = seq(1,0,length=n)
-# sds <- seq(from=2,to=1,length.out=n)
-# mu <- function(N) matrix(rnorm(D*N, mean=means[1], sd=sds[1]),nrow=2)
-# log_gamma <- function(p, x) {
-#   return(dnorm(x[1,], mean=means[p], sd=sds[p],log=T) + dnorm(x[2,], mean=means[p], sd=sds[p],log=T))
-# }
-# log_G <- function(p, x) {
-#   if (p < n) {
-#     res <- log_gamma(p+1,x)-log_gamma(p,x) 
-#   }else {
-#     res <- rep(0, length(x))
-#   }
-#   return(res)
-# }
-# M <- function(p, x) {
-#   N <- dim(x)[2]
-#   y <- x + matrix(rnorm(N*D),nrow=D)
-#   log_ratios <- log_gamma(p, y) - log_gamma(p, x)
-#   accepts <- log(runif(N)) < log_ratios
-#   res <- y[,accepts] + x[,!accepts]
-#   return(res)
-# }
-# smc <- function(mu, M, G, D, n, N) {
-#   as <- matrix(0,n-1,N)
-#   gs <- matrix(0,n,N)
-#   log.Zs <- rep(0,n)
-#   
-#   zetas <- mu(N)
-#   log_gs_p <- log_G(1, zetas)
-#   log.Z.increment <- log(mean(exp(log_gs_p-max(log_gs_p)))) + max(log_gs_p)
-#   log.Zs[1] <- log.Z.increment
-#   
-#   for (p in 2:n) {
-#     # simulate ancestor indices, then particles
-#     zetas_pm1 <- zetas
-#     log_gs_pm1 <- exp(log_gs_p-max(log_gs_p))
-#     as[p-1,] <- sample(N,N,replace=TRUE,prob=log_gs_pm1/sum(log_gs_pm1))
-#     zetas <- M(p, zetas_pm1[,as[p-1,]])
-#     log_gs_p <- log_G(p, zetas)
-#     log.Z.increment <- log(mean(exp(log_gs_p-max(log_gs_p)))) + max(log_gs_p)
-#     log.Zs[p] <- log.Zs[p-1] + log.Z.increment
-#   }
-#   return(list(zetas=zetas,as=as,log.Zs=log.Zs))
-# }
-# 
-# R <- 100
-# z_ests <- rep(NA,R)
-# D <- 2
-# for(r in 1:R){
-#   out <- smc(mu, M, G, D,n, N)
-#   apply(out$zetas, 1, mean)
-#   apply(out$zetas, 1, sd)
-#   z_ests[r] <- exp(out$log.Zs)[n]
-# }
-# 
-# hist(z_ests)
-# abline(v=(2*pi*sds[n]^2)/(2*pi*sds[1]^2))
 
