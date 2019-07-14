@@ -3,16 +3,18 @@ rm(list=ls())
 set.seed(1)
 
 
-
-mu <- function(N) rnorm(N, mean=means[1], sd=sds[1])
+# intial conditions
+mu <- function(N) rnorm(N, mean=0, sd=1)
+log_mu <- function(x) dnorm(x, mean=0, sd=1,log=T)
+# unnormalised targets
 log_gamma <- function(p, x) {
-  (-0.5*(x-means[p]/sds[p])^2)
+  -0.5*( (x-means[p])/sds[p])^2
 }
 log_G <- function(p, x) {
-  if (p < n) {
-    res <- log_gamma(p+1,x) - log_gamma(p,x)
-  }else {
-    res <- rep(0, length(x))
+  if (p == 1) {
+    res <- log_gamma(1,x) - log_mu(x)
+  } else if (p <= n) {
+    res <- log_gamma(p,x) - log_gamma(p-1,x)
   }
   return(res)
 }
@@ -30,35 +32,39 @@ smc <- function(mu, M, G, n, N, sigma2_prop) {
   log_Zs <- rep(0,n)
   
   zetas[1,] <- mu(N)
-  log_gs[1,] <- log_G(1, zetas[1,])
+  log_gs[1,] <- log_G(1,zetas[1,])
   log_Zs[1] <-  log(mean(exp(log_gs[1,]-max(log_gs[1,]))))+max(log_gs[1,])
   
-  for (p in 2:n) {
-    # simulate ancestor indices, then particles
-    w_normalised <- exp(log_gs[p-1,]-max(log_gs[p-1,]))/sum(exp(log_gs[p-1,]-max(log_gs[p-1,])))
-    if(any(is.na(w_normalised))){
-      print('sfsd')
+  if(n>1){
+    for (p in 2:n) {
+      # simulate ancestor indices, then particles
+      w_normalised <- exp(log_gs[p-1,]-max(log_gs[p-1,]))/sum(exp(log_gs[p-1,]-max(log_gs[p-1,])))
+      as[p-1,] <- sample(N,N,replace=TRUE,prob=w_normalised)
+      zetas[p,] <- M(p, zetas[p-1,as[p-1,]], sigma2_prop)
+      log_gs[p,] <- log_G(p, zetas[p,])
+      log_Zs[p] <- log_Zs[p-1] + log(mean(exp(log_gs[p,]-max(log_gs[p,]))))+max(log_gs[p,])
     }
-    as[p-1,] <- sample(N,N,replace=TRUE,prob=w_normalised)
-    zetas[p,] <- M(p, zetas[p-1,as[p-1,]], sigma2_prop)
-    log_gs[p,] <- log_G(p, zetas[p,])
-    log_Zs[p] <- log_Zs[p-1] + log(mean(exp(log_gs[p,]-max(log_gs[p,]))))+max(log_gs[p,])
   }
   return(list(zetas=zetas[n,],as=as,log_Z=log_Zs[n]))
 }
 
 
 ## example
-n <- 100
+n <- 1
 N <- 1e3
-means = seq(4,0,length=n)
-sds <- 10:1
+means <- 0.5#seq(4,0,length=n)
+sds <- 0.1#n:1
 sigma2_prop <- 2
+R <- 100
+log_Z_collect <- rep(NA,R)
+for(r in 1:R){
+  log_Z_collect[r] <- smc(mu, M, G, n, N, sigma2_prop)$log_Z
+}
+hist(exp(log_Z_collect))
 
-out <- smc(mu, M, G, n, N, sigma2_prop)
 # apply(out$zetas, 1, mean)
 # apply(out$zetas, 1, sd)
-out$log_Z
+
 
 
 # biased pimh kernel
@@ -74,7 +80,7 @@ pimh_kernel <- function(smc_out){
   }
   return(return_res)
 }
-smc_out<-smc(mu, M, G, n, N)
+smc_out<-smc(mu, M, G, n, N, sigma2_prop)
 
 # 
 R <- 1000
