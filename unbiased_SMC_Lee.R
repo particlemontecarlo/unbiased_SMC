@@ -50,40 +50,6 @@ smc <- function(mu, M, G, n, N, mu0, sd0, sigma2_prop) {
   return(list(zetas=zetas,as=as,log_Z=log_Zs[n],w_normalised=w_normalised))
 }
 
-
-## example 1 - importance sampling
-n <- 1
-N <- 1e4
-means <- 0.5#seq(4,0,length=n)
-sds <- 0.5#n:1
-sigma2_prop <- 2
-R <- 100
-mu0 <- 0
-sd0 <- 1
-log_Z_collect <- rep(NA,R)
-for(r in 1:R){
-  log_Z_collect[r] <- smc(mu, M, G, n, N, mu0, sd0, sigma2_prop)$log_Z
-}
-hist(exp(log_Z_collect))
-abline(v=sqrt(2*pi*sds[1]^2))
-
-
-## example 2 - sequential monte carlo sampling
-n <- 5
-N <- 1e3
-means <- 1:5
-sds <- 5:1#n:1
-sigma2_prop <- 1
-mu0 <- 0
-sd0 <- 10
-# R <- 100
-smc_means <- rep(NA,R)
-smc_out <- smc(mu, M, G, n, N, mu0, sd0, sigma2_prop)
-rowSums(smc_out$zetas*smc_out$w_normalised)
-rowSums((smc_out$zetas-1:5)^2*smc_out$w_normalised)^0.5
-
-
-
 # biased pimh kernel
 pimh_kernel <- function(smc_out){
   # obtain proposal
@@ -97,21 +63,6 @@ pimh_kernel <- function(smc_out){
   }
   return(return_res)
 }
-
-# 
-R <- 100
-N <- 10
-logZ_arr <- rep(NA,R)
-rb_est <- rep(NA,R)
-smc_out <- list(log_Z=-Inf)
-for(i in 1:R){
-  smc_out <- pimh_kernel(smc_out)
-  logZ_arr[i] <- smc_out$log_Z
-  rb_est[i] <- sum(smc_out$zetas[n,]*smc_out$w_normalised[n,])
-}
-plot(logZ_arr)
-plot(rb_est)
-abline(h=means[n],col='blue')
 
 # unbiased version
 coupled_pimh_kernel <- function(smc_out1,smc_out2){
@@ -137,31 +88,58 @@ coupled_pimh_kernel <- function(smc_out1,smc_out2){
   return(return_res)
 }
 
-
-# run unbiased algorithm
-R <- 100
-N <- 10
-logZ_arr1 <- rep(NA,R)
-zeta_arr1 <- matrix(NA,R,N)
-logZ_arr2 <- rep(NA,R)
-zeta_arr2 <- matrix(NA,R,N)
-smc_out1 <- list(log_Z=-Inf)
-smc_out2 <- list(log_Z=-Inf)
-smc_out1 <- pimh_kernel(smc_out1)
-for(i in 1:R){
-  # iterate for both chains
-  smc_out_both <- coupled_pimh_kernel(smc_out1,smc_out2)
-  smc_out1 <- smc_out_both$return_res1
-  smc_out2 <- smc_out_both$return_res2
+# unbiased algorithm
+unbiased_RB_est <- function(h, N){
   
-  # save results for two chains
-  logZ_arr1[i] <- smc_out1$log_Z
-  zeta_arr1[i,] <- smc_out1$zetas
-  logZ_arr2[i] <- smc_out2$log_Z
-  zeta_arr2[i,] <- smc_out2$zetas
+  # set up arrays
+  R <- 1e3
+  logZ_arr1 <- rep(NA,R+1)
+  zeta_arr1 <- matrix(NA,R+1,N)
+  w_normalised_arr1 <- matrix(NA,R+1,N)
+  logZ_arr2 <- rep(NA,R)
+  zeta_arr2 <- matrix(NA,R,N)
+  w_normalised_arr2 <- matrix(NA,R,N)
+  
+  # initialise
+  tau <- Inf
+  i <- 1
+  smc_out1 <- list(log_Z=-Inf)
+  smc_out2 <- list(log_Z=-Inf)
+  
+  # run algorithm
+  smc_out1 <- pimh_kernel(smc_out1)
+  logZ_arr1[1] <- smc_out1$log_Z
+  zeta_arr1[1,] <- smc_out1$zetas[n,]
+  w_normalised_arr1[1,] <- smc_out1$w_normalised[n,]
+  
+  while(is.infinite(tau)){
+      # iterate for both chains
+      smc_out_both <- coupled_pimh_kernel(smc_out1,smc_out2)
+      smc_out1 <- smc_out_both$return_res1
+      smc_out2 <- smc_out_both$return_res2
+      
+      # save results for two chains
+      logZ_arr1[i+1] <- smc_out1$log_Z
+      zeta_arr1[i+1,] <- smc_out1$zetas[n,]
+      w_normalised_arr1[i+1,] <- smc_out1$w_normalised[n,]
+      logZ_arr2[i] <- smc_out2$log_Z
+      zeta_arr2[i,] <- smc_out2$zetas[n,]
+      w_normalised_arr2[i,] <- smc_out2$w_normalised[n,]
+
+      if(smc_out1$log_Z==smc_out2$log_Z){ tau <- i }
+      i <- i+1
+  }
+  
+  H0 <- sum(  h(zeta_arr1[1,])  * w_normalised_arr1[1,]   )
+  for(i in 1:tau){
+    if(i < tau){
+      delta_h1 <- sum( h(zeta_arr1[i+1,])  * w_normalised_arr1[i+1,]  )
+      delta_h2 <- sum( h(  zeta_arr2[i,])  * w_normalised_arr2[i,]    )
+      delta_h <- delta_h1-delta_h2
+    }else{
+      delta_h <- 0
+    }
+    H0 <- H0 + delta_h
+  }
+  return(list(H0=H0,tau=tau))
 }
-
-
-plot(logZ_arr1)
-matplot(logZ_arr2,type='l',add=T)
-
