@@ -23,24 +23,24 @@ abline(v=sqrt(2*pi*sds[1]^2))
 
 
 ## test 2 - sequential monte carlo sampling
-n <- 5
+n <- 50
 N <- 1e3
-means <- 1:5
-sds <- 5:1#n:1
+means <- seq(5,1,length.out=n)
+sds <- seq(5,1,length.out=n)
 sigma2_prop <- 1
-mu0 <- 0
+mu0 <- 5
 sd0 <- 10
 # R <- 100
 smc_means <- rep(NA,R)
 smc_out <- smc(mu, M, G, n, N, mu0, sd0, sigma2_prop)
 rowSums(smc_out$zetas*smc_out$w_normalised)
-rowSums((smc_out$zetas-1:5)^2*smc_out$w_normalised)^0.5
+rowSums((smc_out$zetas-means)^2*smc_out$w_normalised)^0.5
 
 
 # test pimh kernel - see the bias
-R <- 1e4
-n_pimh <- 20
-N <- 50
+R <- 1e2
+n_pimh <- 100
+N <- 1e2
 logZ_arr <- matrix(NA,R,n_pimh)
 rb_est <- matrix(NA,R,n_pimh)
 smc_out <- list(log_Z=-Inf)
@@ -64,7 +64,7 @@ legend('topright',legend=c('estimated','true'),lty=c(1,1),col=c('black','blue'))
 # unbiased version
 h <- function(x){ x }
 
-n_ests <- n_pimh*R/2 # get estimators on a comparable budget
+n_ests <- 10*n_pimh*R # get estimators on a comparable budget
 H0_ests <- rep(NA,n_ests)
 tau_arr <- rep(NA,n_ests)
 for(j in 1:n_ests){
@@ -75,8 +75,10 @@ for(j in 1:n_ests){
 
 CI_u <- mean(H0_ests)  + sqrt(3*var(H0_ests)/n_ests)
 CI_l <- mean(H0_ests)  - sqrt(3*var(H0_ests)/n_ests)
-abline(h=CI_u,col='blue')
-abline(h=CI_l,col='blue')
+abline(h=CI_u,col='darkgreen')
+abline(h=CI_l,col='darkgreen')
+
+
 
 
 hist(H0_ests,1e2)

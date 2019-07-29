@@ -8,7 +8,7 @@ mu <- function(N) rnorm(N, mean=mu0, sd=sd0)
 log_mu <- function(x) dnorm(x, mean=mu0, sd=sd0,log=T)
 # unnormalised targets
 log_gamma <- function(p, x) {
-  -0.5*( (x-means[p])/sds[p])^2
+  -0.5*(log(2*pi*(sds[p]^2)) + (x-means[p])/sds[p])^2
 }
 log_G <- function(p, x) {
   if (p == 1) {
@@ -94,10 +94,10 @@ unbiased_RB_est <- function(h, N){
   # set up arrays
   R <- 1e3
   logZ_arr1 <- rep(NA,R+1)
-  zeta_arr1 <- matrix(NA,R+1,N)
-  w_normalised_arr1 <- matrix(NA,R+1,N)
   logZ_arr2 <- rep(NA,R)
+  zeta_arr1 <- matrix(NA,R+1,N)
   zeta_arr2 <- matrix(NA,R,N)
+  w_normalised_arr1 <- matrix(NA,R+1,N)
   w_normalised_arr2 <- matrix(NA,R,N)
   
   # initialise
@@ -120,10 +120,10 @@ unbiased_RB_est <- function(h, N){
       
       # save results for two chains
       logZ_arr1[i+1] <- smc_out1$log_Z
-      zeta_arr1[i+1,] <- smc_out1$zetas[n,]
-      w_normalised_arr1[i+1,] <- smc_out1$w_normalised[n,]
       logZ_arr2[i] <- smc_out2$log_Z
+      zeta_arr1[i+1,] <- smc_out1$zetas[n,]
       zeta_arr2[i,] <- smc_out2$zetas[n,]
+      w_normalised_arr1[i+1,] <- smc_out1$w_normalised[n,]
       w_normalised_arr2[i,] <- smc_out2$w_normalised[n,]
 
       if(smc_out1$log_Z==smc_out2$log_Z){ tau <- i }
@@ -133,8 +133,8 @@ unbiased_RB_est <- function(h, N){
   H0 <- sum(  h(zeta_arr1[1,])  * w_normalised_arr1[1,]   )
   for(i in 1:tau){
     if(i < tau){
-      delta_h1 <- sum( h(zeta_arr1[i+1,])  * w_normalised_arr1[i+1,]  )
-      delta_h2 <- sum( h(  zeta_arr2[i,])  * w_normalised_arr2[i,]    )
+      delta_h1 <- sum( h( zeta_arr1[i+1,])  * w_normalised_arr1[i+1,]  )
+      delta_h2 <- sum( h( zeta_arr2[i,])    * w_normalised_arr2[i,]    )
       delta_h <- delta_h1-delta_h2
     }else{
       delta_h <- 0
