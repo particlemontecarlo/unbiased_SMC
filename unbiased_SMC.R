@@ -1,4 +1,5 @@
 ### SMC sampler code in R
+# this code is based off snippets provided by Anthony Lee
 rm(list=ls())
 set.seed(1)
 
@@ -6,11 +7,6 @@ set.seed(1)
 # intial conditions
 mu <- function(N) rnorm(N, mean=mu0, sd=sd0)
 log_mu <- function(x) dnorm(x, mean=mu0, sd=sd0,log=T)
-# unnormalised targets
-log_gamma <- function(p, x) {
-  #-0.5*(     log(2*pi*(sds[p]^2))    +    ((x-means[p])/sds[p])^2   )
-  -0.5*(   ((x-means[p])/sds[p])^2   )
-}
 log_G <- function(p, x) {
   if (p == 1) {
     res <- log_gamma(1,x) - log_mu(x)

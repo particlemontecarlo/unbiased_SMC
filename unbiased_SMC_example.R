@@ -7,54 +7,47 @@ source("unbiased_SMC.R")
 
 
 # define unnormalised normal target
-log_gamma <- function(p, x) {
-  -0.5*(   ((x-means[p])/sds[p])^2   )
-}
-
-## test 1 - importance sampling
-n <- 1
-N <- 1e4
-means <- 0.5
-sds <- 0.5
-sigma2_prop <- 2
-R <- 100
-mu0 <- 0
-sd0 <- 1
-log_Z_collect <- rep(NA,R)
-for(r in 1:R){
-  log_Z_collect[r] <- smc(mu, M, G, n, N, mu0, sd0, sigma2_prop)$log_Z
-}
-hist(exp(log_Z_collect))
-abline(v=sqrt(2*pi*sds[1]^2))
-
-
-## test 2 - sequential monte carlo sampling
-n <- 50
-N <- 1e2
-means <- seq(5,1,length.out=n)
-sds <- seq(5,1,length.out=n)
+N <- 1e5
 sigma2_prop <- 5
 mu0 <- 5
 sd0 <- 10
-# R <- 100
-smc_means <- rep(NA,R)
+n <- 100
+means <- seq(5,1,length.out=n)
+sds <- seq(5,1,length.out=n)
+mu1 <- -0.5
+mu2 <- 3
+# log_gamma <- function(p,x){
+#   log(dnorm(x,mu1,1)^((p-1)/(n-1))) + log(dnorm(x,mu0,sd0/2)^(1-(p-1)/(n-1)))
+# }
+log_gamma <- function(p,x){
+  log((0.5*dnorm(x,mu1,1)+0.5*dnorm(x,mu2,3))^((p-1)/(n-1))) + log(dnorm(x,mu0,sd0/2)^(1-(p-1)/(n-1)))
+}
+# plot the targets
+x_plt <- seq(from=-5,to=10,length.out=100)
+plot(x_plt,exp(log_gamma(n,x_plt)),type='l')
+matplot(x_plt,exp(log_gamma(1,x_plt)),add=T,type='l')
+matplot(x_plt,exp(log_gamma(n/2,x_plt)),add=T,type='l')
+
 smc_out <- smc(mu, M, G, n, N, mu0, sd0, sigma2_prop)
-rowSums(smc_out$zetas*smc_out$w_normalised)
-rowSums((smc_out$zetas-means)^2*smc_out$w_normalised)^0.5
+sum(smc_out$zetas[n,]*smc_out$w_normalised[n,])
+
+
 
 
 # test pimh kernel - see the bias
-R <- 1e4
-n_pimh <- 5
-N <- 1e2
+R <- 1e2
+n_pimh <- 50
+
 logZ_arr <- matrix(NA,R,n_pimh)
 rb_est <- matrix(NA,R,n_pimh)
 smc_out <- list(log_Z=-Inf)
+zeta_sample <- matrix(NA,R,n_pimh)
 for(i in 1:R){
   for(j in 1:n_pimh){
     smc_out <- pimh_kernel(smc_out)
     logZ_arr[i,j] <- smc_out$log_Z
     rb_est[i,j] <- sum(smc_out$zetas[n,]*smc_out$w_normalised[n,])
+    #zeta_sample[i,j] <- 
   }
 }
 
@@ -64,10 +57,10 @@ rb_plot <- colMeans(rb_est)
 rb_avg_std <- sqrt(diag(var(rb_est))/R)
 rb_u <- rb_plot+3*rb_avg_std
 rb_l <- rb_plot-3*rb_avg_std
-rb_ylims <- c(0.99*min(rb_plot,means[n]),1.01*max(rb_plot,means[n]))
+rb_ylims <- c(0.99*min(rb_l),1.01*max(rb_u))
 plot(rb_plot,ylim=rb_ylims,type='l')
 matplot((matrix(c(rb_u,rb_l),ncol=2)),type='l',add=T)
-abline(h=means[n],col='blue')
+abline(h=(mu1+mu2),col='blue')
 legend('topright',legend=c('estimated','true'),lty=c(1,1),col=c('black','blue'))
 
 
