@@ -7,18 +7,15 @@ source("unbiased_SMC.R")
 
 
 # define unnormalised normal target
-N <- 1e5
+N <- 1e2
 sigma2_prop <- 5
 mu0 <- 5
 sd0 <- 10
-n <- 100
+n <- 10
 means <- seq(5,1,length.out=n)
 sds <- seq(5,1,length.out=n)
 mu1 <- -0.5
 mu2 <- 3
-# log_gamma <- function(p,x){
-#   log(dnorm(x,mu1,1)^((p-1)/(n-1))) + log(dnorm(x,mu0,sd0/2)^(1-(p-1)/(n-1)))
-# }
 log_gamma <- function(p,x){
   log((0.5*dnorm(x,mu1,1)+0.5*dnorm(x,mu2,3))^((p-1)/(n-1))) + log(dnorm(x,mu0,sd0/2)^(1-(p-1)/(n-1)))
 }
@@ -35,7 +32,7 @@ sum(smc_out$zetas[n,]*smc_out$w_normalised[n,])
 
 
 # test pimh kernel - see the bias
-R <- 1e2
+R <- 1e3
 n_pimh <- 50
 
 logZ_arr <- matrix(NA,R,n_pimh)
@@ -47,7 +44,6 @@ for(i in 1:R){
     smc_out <- pimh_kernel(smc_out)
     logZ_arr[i,j] <- smc_out$log_Z
     rb_est[i,j] <- sum(smc_out$zetas[n,]*smc_out$w_normalised[n,])
-    #zeta_sample[i,j] <- 
   }
 }
 
@@ -60,7 +56,7 @@ rb_l <- rb_plot-3*rb_avg_std
 rb_ylims <- c(0.99*min(rb_l),1.01*max(rb_u))
 plot(rb_plot,ylim=rb_ylims,type='l')
 matplot((matrix(c(rb_u,rb_l),ncol=2)),type='l',add=T)
-abline(h=(mu1+mu2),col='blue')
+abline(h=(mu1+mu2)/2,col='blue')
 legend('topright',legend=c('estimated','true'),lty=c(1,1),col=c('black','blue'))
 
 
