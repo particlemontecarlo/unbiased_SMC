@@ -54,7 +54,7 @@ abline(v=CI_u,col='blue') # plot true value
 abline(v=CI_l,col='blue') # plot true value
 abline(v=mean_est,col='darkgreen')
 legend('topright',legend=c('CI','unbiased est','true'),lty=c(1,1,1),col=c('blue','darkgreen','black'))
-print(sprintf('test results for SMC with confidence interval at +-3 sigma'))
+print(sprintf('test results for SMC with confidence interval at +-2 sigma'))
 print(sprintf('true value: %.3f     estimate value: %.3f    upper CI: %.3f    lower CI: %.3f',
               (mu1+mu2)/2,mean_est,CI_u,CI_l))
 
