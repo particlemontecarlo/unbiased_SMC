@@ -8,7 +8,8 @@ mu <- function(N) rnorm(N, mean=mu0, sd=sd0)
 log_mu <- function(x) dnorm(x, mean=mu0, sd=sd0,log=T)
 # unnormalised targets
 log_gamma <- function(p, x) {
-  -0.5*(log(2*pi*(sds[p]^2)) + (x-means[p])/sds[p])^2
+  #-0.5*(     log(2*pi*(sds[p]^2))    +    ((x-means[p])/sds[p])^2   )
+  -0.5*(   ((x-means[p])/sds[p])^2   )
 }
 log_G <- function(p, x) {
   if (p == 1) {
@@ -42,7 +43,7 @@ smc <- function(mu, M, G, n, N, mu0, sd0, sigma2_prop) {
       # simulate ancestor indices, then particles
       as[p-1,] <- sample(N,N,replace=TRUE,prob=w_normalised[p-1,])
       zetas[p,] <- M(p, zetas[p-1,as[p-1,]], sigma2_prop)
-      log_gs[p,] <- log_G(p, zetas[p,])
+      log_gs[p,] <- log_G(p, zetas[p-1,as[p-1,]])
       log_Zs[p] <- log_Zs[p-1] + log(mean(exp(log_gs[p,]-max(log_gs[p,]))))+max(log_gs[p,])
       w_normalised[p,] <- exp(log_gs[p,]-max(log_gs[p,]))/sum(exp(log_gs[p,]-max(log_gs[p,])))
     }
